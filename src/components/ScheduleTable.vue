@@ -3,33 +3,34 @@
     <table class="schedule-table">
       <thead>
         <tr>
-          <th rowspan="2" class="col-name"></th>
-          <th colspan="31" class="month-header">Maggio 2025</th>
-          <th rowspan="5">Ore totali</th>
-          <th rowspan="5">Shifts</th>
-          <th rowspan="5">Leave</th>
-          <th rowspan="5">Overtime</th>
-          <th rowspan="5">TOIL worked</th>
-          <th rowspan="5">TOIL taken</th>
-          <th rowspan="5">Sick</th>
-          <th rowspan="5">Week Days</th>
+          <th scope="col" rowspan="2" class="col-name"></th>
+          <th scope="col" colspan="31" class="month-header">Maggio 2025</th>
+          <th scope="col" rowspan="5">Ore totali</th>
+          <th scope="col" rowspan="5">Shifts</th>
+          <th scope="col" rowspan="5">Leave</th>
+          <th scope="col" rowspan="5">Overtime</th>
+          <th scope="col" rowspan="5">TOIL worked</th>
+          <th scope="col" rowspan="5">TOIL taken</th>
+          <th scope="col" rowspan="5">Sick</th>
+          <th scope="col" rowspan="5">Week Days</th>
         </tr>
         <tr>
-          <th v-for="day in days" :key="'header-' + day">{{ day }}</th>
+          <th v-for="day in days" :key="'header-' + day" scope="col">{{ day }}</th>
         </tr>
         <tr>
-          <th class="summary-label">Staff Away</th>
-          <th v-for="day in days" :key="'away-' + day" class="summary-cell staff-away">{{ staffAway[day - 1] }}</th>
+          <th scope="row" class="summary-label">Staff Away</th>
+          <th v-for="day in days" :key="'away-' + day" scope="col" class="summary-cell staff-away">{{ staffAway[day - 1]
+            }}</th>
         </tr>
         <tr>
-          <th class="summary-label">Daytime Cover</th>
-          <th v-for="day in days" :key="'daycover-' + day"
+          <th scope="row" class="summary-label">Daytime Cover</th>
+          <th v-for="day in days" :key="'daycover-' + day" scope="col"
             :class="['summary-cell', (daytimeCover[day - 1] || 0) < 2 ? 'alert' : 'day-cover']">{{ (daytimeCover[day -
               1] || 0) }}</th>
         </tr>
         <tr>
-          <th class="summary-label">Nighttime Cover</th>
-          <th v-for="day in days" :key="'nightcover-' + day"
+          <th scope="row" class="summary-label">Nighttime Cover</th>
+          <th v-for="day in days" :key="'nightcover-' + day" scope="col"
             :class="['summary-cell', (nighttimeCover[day - 1] || 0) < 2 ? 'alert' : 'night-cover']">{{
               (nighttimeCover[day - 1] || 0) }}</th>
         </tr>
