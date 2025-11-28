@@ -1,6 +1,6 @@
 <template>
   <div class="schedule-table-wrapper">
-    <table class="schedule-table">
+    <table ref="tableRef" class="schedule-table">
       <thead>
         <tr>
           <th scope="col" rowspan="3" class="col-name"></th>
@@ -9,6 +9,7 @@
               <button @click.prevent="prevMonth">◀</button>
               <span>{{ monthLabel }}</span>
               <button @click.prevent="nextMonth">▶</button>
+
             </div>
           </th>
           <th scope="col" rowspan="6">Ore totali</th>
@@ -29,7 +30,7 @@
         <tr>
           <th scope="row" class="summary-label">Staff Away</th>
           <th v-for="day in days" :key="'away-' + day" scope="col" class="summary-cell staff-away">{{ staffAway[day - 1]
-            }}</th>
+          }}</th>
         </tr>
         <tr>
           <th scope="row" class="summary-label">Daytime Cover</th>
@@ -48,8 +49,12 @@
         <tr v-for="(person, pIdx) in people" :key="person.name">
           <td class="name">{{ person.name }}</td>
           <td v-for="(cell, i) in person.schedule" :key="i"
-            :class="[cellClass(cell), isValidCell(cell) ? '' : 'invalid']" contenteditable="true"
-            @input="onCellInput(pIdx, i, $event)" @keydown="onCellKeydown($event)">
+            :class="[cellClass(cell), isValidCell(cell) ? '' : 'invalid']" contenteditable="true" tabindex="0"
+            @input="onCellInput(pIdx, i, $event)" @keydown="onCellKeydown($event, pIdx, i)"
+            @blur="onCellBlur(pIdx, i, $event)" @focus="onCellFocus(pIdx, i, $event)"
+            @compositionstart="onCompositionStart(pIdx, i, $event)"
+            @compositionupdate="onCompositionUpdate(pIdx, i, $event)"
+            @compositionend="onCompositionEnd(pIdx, i, $event)">
             {{ cell }}
           </td>
           <td>{{ getCalculated(person).totalHours.toFixed(2).replace('.', ',') }}</td>
@@ -125,6 +130,177 @@ interface Shift {
 
 const people = ref<Person[]>([]);
 
+const tableRef = ref<HTMLTableElement | null>(null);
+const editingCell = ref<{ p: number; i: number } | null>(null);
+
+// Buffer + debounce state for committing edits without rerendering on every keystroke
+const DEBOUNCE_MS = 300;
+const editBuffer = new Map<string, string>();
+const debounceTimers = new Map<string, number>();
+
+function bufferKey(p: number, d: number) {
+  return `${p}:${d}`;
+}
+
+function commitFromBuffer(key: string, p: number, d: number) {
+  // clear timer if present
+  const tid = debounceTimers.get(key);
+  if (tid) {
+    clearTimeout(tid);
+    debounceTimers.delete(key);
+  }
+  const v = editBuffer.get(key);
+  if (v === undefined) return;
+  const person = people.value[p];
+  if (!person) {
+    editBuffer.delete(key);
+    return;
+  }
+  // If the corresponding cell is currently focused, avoid updating the
+  // reactive model (which would trigger a DOM update and move the caret).
+  // Instead, re-schedule the commit for a short time later and leave the
+  // buffer intact; the value will be committed on blur as an immediate
+  // fallback.
+  const el = getCellElement(p, d);
+  if (el && document.activeElement === el) {
+    // re-schedule commit for later
+    const id = window.setTimeout(() => commitFromBuffer(key, p, d), DEBOUNCE_MS);
+    debounceTimers.set(key, id as unknown as number);
+    return;
+  }
+
+  if (d >= 0 && d < person.schedule.length) {
+    person.schedule[d] = v;
+  }
+  editBuffer.delete(key);
+}
+
+function scheduleBufferCommit(p: number, d: number, value: string) {
+  const key = bufferKey(p, d);
+  editBuffer.set(key, value);
+  const prev = debounceTimers.get(key);
+  if (prev) {
+    clearTimeout(prev);
+  }
+  const id = window.setTimeout(() => commitFromBuffer(key, p, d), DEBOUNCE_MS);
+  debounceTimers.set(key, id as unknown as number);
+}
+
+function clearBufferFor(p: number, d: number) {
+  const key = bufferKey(p, d);
+  const tid = debounceTimers.get(key);
+  if (tid) {
+    clearTimeout(tid);
+    debounceTimers.delete(key);
+  }
+  editBuffer.delete(key);
+}
+
+function getCellElement(p: number, i: number): HTMLElement | undefined {
+  const rows = tableRef.value?.querySelectorAll('tbody tr') ?? [];
+  const row = rows[p] as HTMLElement | undefined;
+  if (!row) return undefined;
+  // first td is the name, then day cells
+  const cell = row.children[1 + i] as HTMLElement | undefined;
+  return cell;
+}
+
+function focusCell(p: number, i: number) {
+  const el = getCellElement(p, i);
+  if (el) el.focus();
+}
+
+
+
+function onCellFocus(pIdx: number, i: number, e: FocusEvent) {
+  const el = getCellElement(pIdx, i);
+  void e;
+  // Normalize the DOM inside the cell to a single text node containing the visible text
+  if (el) {
+    // preserve visible text but strip leading LRM marks we may have inserted
+    const raw = (el.innerText ?? '').replace(/^\u200E+/, '');
+    // set textContent to create a single text node
+    el.textContent = raw;
+    try {
+      el.setAttribute('dir', 'ltr');
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function onCellBlur(pIdx: number, i: number, e: FocusEvent) {
+  const target = e.target as HTMLElement;
+  // remove any leading LRM we may have inserted when entering edit-mode
+  const raw = target.innerText || '';
+  const newVal = raw.replace(/^\u200E+/, '').trim();
+  const person = people.value[pIdx];
+  if (!person) return;
+  if (i < 0 || i >= person.schedule.length) return;
+  // clear any pending debounce and buffer for this cell, then commit immediately
+  clearBufferFor(pIdx, i);
+  person.schedule[i] = newVal;
+  // clear editing state if it was this cell
+  if (editingCell.value && editingCell.value.p === pIdx && editingCell.value.i === i) editingCell.value = null;
+}
+
+function onCellKeydown(e: KeyboardEvent, pIdx: number, i: number) {
+  // no-op debug logging here to keep handler minimal
+  const isDelete = e.key === 'Delete' || e.key === 'Backspace';
+  if (isDelete) {
+    e.preventDefault();
+    const el = getCellElement(pIdx, i);
+    if (el) el.innerText = '';
+    const person = people.value[pIdx];
+    if (person && i >= 0 && i < person.schedule.length) person.schedule[i] = '';
+    if (editingCell.value && editingCell.value.p === pIdx && editingCell.value.i === i) editingCell.value = null;
+    return;
+  }
+  const isTab = e.key === 'Tab';
+  const isEnter = e.key === 'Enter';
+  if (isTab) {
+    e.preventDefault();
+    const shift = e.shiftKey;
+    const scheduleLen = people.value[pIdx]?.schedule.length ?? days.value.length;
+    let np = pIdx;
+    let ni = i + (shift ? -1 : 1);
+    if (ni < 0) {
+      // move to previous row last day
+      if (pIdx > 0) {
+        np = pIdx - 1;
+        ni = (people.value[np]?.schedule.length ?? scheduleLen) - 1;
+      } else {
+        ni = 0;
+      }
+    } else if (ni >= scheduleLen) {
+      // move to next row first day
+      if (pIdx < people.value.length - 1) {
+        np = pIdx + 1;
+        ni = 0;
+      } else {
+        ni = scheduleLen - 1;
+      }
+    }
+    focusCell(np, ni);
+    return;
+  }
+  if (isEnter) {
+    e.preventDefault();
+    const el = getCellElement(pIdx, i);
+    if (!el) return;
+    const currentlyEditing = editingCell.value && editingCell.value.p === pIdx && editingCell.value.i === i;
+    if (!currentlyEditing) {
+      // enter edit mode: clear content for the user
+      editingCell.value = { p: pIdx, i };
+      // enter edit mode: focus the cell (do not manipulate caret)
+      el.focus();
+    } else {
+      // if already editing, commit
+      el.blur();
+    }
+  }
+}
+
 async function fetchDataForMonth(monthDate: Date) {
   loading.value = true;
   error.value = null;
@@ -173,6 +349,31 @@ async function fetchDataForMonth(monthDate: Date) {
 onMounted(() => fetchDataForMonth(currentMonth.value));
 watch(currentMonth, (nv) => fetchDataForMonth(nv));
 
+// Expose debug helpers on window for quick inspection from DevTools
+if (typeof window !== 'undefined') {
+  (window as unknown as Record<string, unknown>).__schedDebug = {
+    getCellText: (r: number, c: number) => {
+      const el = getCellElement(r, c);
+      return el ? { innerText: el.innerText, textContent: el.textContent } : null;
+    },
+    getModel: () => {
+      return people.value;
+    },
+    dumpRow: (r: number) => {
+      const rows = tableRef.value?.querySelectorAll('tbody tr') ?? [];
+      const row = rows[r] as HTMLElement | undefined;
+      if (!row) return null;
+      // skip first cell (name) and read day cells
+      const values: string[] = [];
+      for (let i = 1; i < row.children.length; i++) {
+        const td = row.children[i] as HTMLElement;
+        values.push(td.innerText ?? '');
+      }
+      return values;
+    }
+  };
+}
+
 // valid codes
 const validCodes = new Set(['N', 'D', 'd', 'I', '*', 'spl4', '8']);
 
@@ -191,21 +392,31 @@ const nighttimeCover = computed(() =>
 );
 
 function onCellInput(personIdx: number, dayIdx: number, e: Event) {
-  const target = e.target as HTMLElement;
-  const newVal = target.innerText.trim();
-  const person = people.value[personIdx];
-  if (!person) return;
-  if (dayIdx < 0 || dayIdx >= person.schedule.length) return;
-  person.schedule[dayIdx] = newVal;
+  // Do not update the reactive model on every keystroke. Instead buffer the
+  // latest textual value and commit after a debounce interval.
+  const target = e.target as HTMLElement | null;
+  if (!target) return;
+  const raw = (target.innerText ?? '').replace(/^\u200E+/, '');
+  // schedule the buffered commit
+  scheduleBufferCommit(personIdx, dayIdx, raw);
 }
 
-function onCellKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    const target = e.target as HTMLElement;
-    target.blur();
-  }
+function onCompositionStart(_pIdx: number, _i: number, _e: CompositionEvent) {
+  // composition events intentionally not logged in production
+  void _pIdx; void _i; void _e;
 }
+
+function onCompositionUpdate(_pIdx: number, _i: number, _e: CompositionEvent) {
+  // composition events intentionally not logged in production
+  void _pIdx; void _i; void _e;
+}
+
+function onCompositionEnd(_pIdx: number, _i: number, _e: CompositionEvent) {
+  // composition events intentionally not logged in production
+  void _pIdx; void _i; void _e;
+}
+
+
 
 function cellClass(cell: string) {
   if (cell === "N") return "night";
@@ -314,6 +525,13 @@ function getCalculated(person: Person) {
   padding: 7px 12px;
   text-align: center;
   min-width: 32px;
+}
+
+/* Force left-to-right typing inside editable day cells and isolate bidi */
+.schedule-table td[contenteditable] {
+  direction: ltr;
+  unicode-bidi: isolate-override;
+  /* stronger isolation and override of bidi for editable cells */
 }
 
 

@@ -8,6 +8,10 @@ import ScheduleTable from "./components/ScheduleTable.vue";
 </template>
 
 <style scoped>
+  @import url('https://fonts.googleapis.com/css2?family=Science+Gothic:wght@100..900&display=swap');
+  *{
+    font-family: 'Science Gothic', sans-serif;
+  }
   h1{
     text-align: center;
   }
