@@ -3,19 +3,28 @@
     <table class="schedule-table">
       <thead>
         <tr>
-          <th scope="col" rowspan="2" class="col-name"></th>
-          <th scope="col" colspan="31" class="month-header">Maggio 2025</th>
-          <th scope="col" rowspan="5">Ore totali</th>
-          <th scope="col" rowspan="5">Shifts</th>
-          <th scope="col" rowspan="5">Leave</th>
-          <th scope="col" rowspan="5">Overtime</th>
-          <th scope="col" rowspan="5">TOIL worked</th>
-          <th scope="col" rowspan="5">TOIL taken</th>
-          <th scope="col" rowspan="5">Sick</th>
-          <th scope="col" rowspan="5">Week Days</th>
+          <th scope="col" rowspan="3" class="col-name"></th>
+          <th scope="col" :colspan="days.length" class="month-header">
+            <div style="display:flex;align-items:center;justify-content:center;gap:12px;">
+              <button @click.prevent="prevMonth">◀</button>
+              <span>{{ monthLabel }}</span>
+              <button @click.prevent="nextMonth">▶</button>
+            </div>
+          </th>
+          <th scope="col" rowspan="6">Ore totali</th>
+          <th scope="col" rowspan="6">Shifts</th>
+          <th scope="col" rowspan="6">Leave</th>
+          <th scope="col" rowspan="6">Overtime</th>
+          <th scope="col" rowspan="6">TOIL worked</th>
+          <th scope="col" rowspan="6">TOIL taken</th>
+          <th scope="col" rowspan="6">Sick</th>
+          <th scope="col" rowspan="6">Week Days</th>
         </tr>
         <tr>
           <th v-for="day in days" :key="'header-' + day" scope="col">{{ day }}</th>
+        </tr>
+        <tr>
+          <th v-for="(day, idx) in days" :key="'weekday-' + day" scope="col">{{ weekdayLabels[idx] }}</th>
         </tr>
         <tr>
           <th scope="row" class="summary-label">Staff Away</th>
@@ -58,57 +67,111 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, computed } from 'vue';
+import { computed, ref, onMounted, watch } from 'vue';
+import { API_URL } from '../utils/env';
+import { getTurnsUrl } from '../utils/turnsEndpoint';
 
-const days = Array.from({ length: 31 }, (_, i) => i + 1);
+const currentMonth = ref(new Date(2025, 10, 1)); // Novembre 2025 (month is 0-based)
+
+const days = computed(() => {
+  const year = currentMonth.value.getFullYear();
+  const month = currentMonth.value.getMonth();
+  const last = new Date(year, month + 1, 0).getDate();
+  return Array.from({ length: last }, (_, i) => i + 1);
+});
+
+const monthLabel = computed(() => {
+  return currentMonth.value.toLocaleString(undefined, { month: 'long', year: 'numeric' });
+});
+
+const weekdayLabels = computed(() => {
+  const year = currentMonth.value.getFullYear();
+  const month = currentMonth.value.getMonth();
+  return days.value.map((day) => {
+    const d = new Date(Date.UTC(year, month, day));
+    return d.toLocaleString(undefined, { weekday: 'short' });
+  });
+});
+
+const loading = ref(false);
+const error = ref<string | null>(null);
+
+function prevMonth() {
+  const d = new Date(currentMonth.value);
+  d.setMonth(d.getMonth() - 1);
+  currentMonth.value = d;
+}
+
+function nextMonth() {
+  const d = new Date(currentMonth.value);
+  d.setMonth(d.getMonth() + 1);
+  currentMonth.value = d;
+}
 
 interface Person {
   name: string;
   schedule: string[];
 }
 
-const people = reactive<Person[]>([
-  {
-    name: "Giorgia",
-    schedule: ["*", "spl4", "d", "spl4", "*", "spl4", "d", "spl4", "*", "spl4", "d", "spl4", "*", "spl4", "d", "spl4", "*", "spl4", "d", "spl4", "*", "spl4", "d", "spl4", "*", "spl4", "d", "spl4", "*", "spl4", "d"],
-  },
-  {
-    name: "Luca",
-    schedule: ["D", "d", "N", "N", "D", "d", "N", "N", "D", "d", "N", "N", "D", "d", "N", "N", "D", "d", "N", "N", "D", "d", "N", "N", "D", "d", "N", "N", "D", "d", "N"]
-  },
-  {
-    name: "Martina",
-    schedule: ["I", "I", "D", "d", "*", "*", "N", "N", "D", "d", "*", "*", "N", "N", "D", "d", "*", "*", "N", "N", "D", "d", "*", "*", "N", "N", "D", "d", "*", "*", "N"]
-  },
-  {
-    name: "Alessio",
-    schedule: ["spl4", "spl4", "*", "*", "D", "d", "N", "N", "*", "*", "D", "d", "N", "N", "*", "*", "D", "d", "N", "N", "*", "*", "D", "d", "N", "N", "*", "*", "D", "d", "N"]
-  },
-  {
-    name: "Sara",
-    schedule: ["*", "D", "d", "N", "N", "I", "I", "D", "D", "N", "N", "I", "I", "D", "d", "N", "N", "I", "I", "D", "d", "N", "N", "I", "I", "D", "d", "N", "N", "I", "I"]
-  },
-  {
-    name: "Francesco",
-    schedule: ["N", "N", "D", "d", "I", "I", "*", "*", "spl4", "spl4", "D", "d", "N", "N", "I", "I", "*", "*", "spl4", "spl4", "D", "d", "N", "N", "I", "I", "*", "*", "spl4", "spl4", "D"]
-  },
-  {
-    name: "Giulia",
-    schedule: ["D", "d", "D", "N", "N", "N", "I", "I", "*", "*", "spl4", "spl4", "D", "d", "N", "N", "I", "I", "*", "*", "spl4", "spl4", "D", "d", "N", "N", "I", "I", "*", "*", "spl4"]
-  },
-  {
-    name: "Davide",
-    schedule: ["I", "I", "N", "N", "D", "d", "*", "*", "spl4", "spl4", "D", "d", "N", "N", "I", "I", "*", "*", "spl4", "spl4", "D", "d", "N", "N", "I", "I", "*", "*", "spl4", "spl4", "D"]
-  },
-  {
-    name: "Elena",
-    schedule: ["D", "N", "I", "*", "spl4", "D", "d", "I", "*", "spl4", "D", "N", "I", "*", "spl4", "D", "d", "I", "*", "spl4", "D", "N", "I", "*", "spl4", "D", "d", "I", "*", "spl4", "D"]
-  },
-  {
-    name: "Simone",
-    schedule: ["N", "D", "I", "*", "spl4", "N", "d", "I", "*", "spl4", "N", "D", "I", "*", "spl4", "N", "d", "I", "*", "spl4", "N", "D", "I", "*", "spl4", "N", "d", "I", "*", "spl4", "N"]
+interface Shift {
+  idTurno: number;
+  data: string;
+  nomeUtente: string;
+  oreLavorate: string;
+  orePermesso: string;
+  isNotturno: number;
+  tipoPermesso: string | null;
+}
+
+const people = ref<Person[]>([]);
+
+async function fetchDataForMonth(monthDate: Date) {
+  loading.value = true;
+  error.value = null;
+  try {
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+    const from = new Date(Date.UTC(year, month, 1));
+    const to = new Date(Date.UTC(year, month + 1, 0));
+    const url = getTurnsUrl(API_URL, from, to);
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Errore nel caricamento turni');
+    const apiData = await res.json();
+    const turni: Shift[] = apiData.result || [];
+
+    const daysCount = to.getUTCDate();
+    const utenti: Record<string, string[]> = {};
+    // init users with full-month arrays
+    turni.forEach((t) => {
+      if (!utenti[t.nomeUtente]) utenti[t.nomeUtente] = Array(daysCount).fill('*');
+    });
+    // populate
+    turni.forEach((t) => {
+      const d = new Date(t.data);
+      // use UTC date to match API
+      const day = d.getUTCDate();
+      let code = '';
+      if (t.tipoPermesso) code = 'I';
+      else if (parseFloat(t.oreLavorate) === 12 && t.isNotturno) code = 'N';
+      else if (parseFloat(t.oreLavorate) === 12) code = 'D';
+      else if (parseFloat(t.oreLavorate) === 8) code = 'd';
+      else if (parseFloat(t.oreLavorate) > 0) code = 'spl4';
+      else code = '*';
+      const scheduleForUser = utenti[t.nomeUtente];
+      if (scheduleForUser && day >= 1 && day <= daysCount) scheduleForUser[day - 1] = code;
+    });
+    people.value = Object.entries(utenti).map(([name, schedule]) => ({ name, schedule }));
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('Errore fetch turni:', msg);
+    error.value = msg;
+  } finally {
+    loading.value = false;
   }
-]);
+}
+
+onMounted(() => fetchDataForMonth(currentMonth.value));
+watch(currentMonth, (nv) => fetchDataForMonth(nv));
 
 // valid codes
 const validCodes = new Set(['N', 'D', 'd', 'I', '*', 'spl4', '8']);
@@ -117,22 +180,20 @@ function isValidCell(cell: string) {
   return validCodes.has(cell);
 }
 
-// Calcolo riepilogo per ogni giorno (reactive)
 const staffAway = computed(() =>
-  days.map((_, idx) => people.reduce((acc, person) => person.schedule[idx] === 'I' ? acc + 1 : acc, 0))
+  days.value.map((_: number, idx: number) => people.value.reduce((acc, person) => person.schedule[idx] === 'I' ? acc + 1 : acc, 0))
 );
 const daytimeCover = computed(() =>
-  days.map((_, idx) => people.reduce((acc, person) => (person.schedule[idx] === 'D' || person.schedule[idx] === 'd') ? acc + 1 : acc, 0))
+  days.value.map((_: number, idx: number) => people.value.reduce((acc, person) => (person.schedule[idx] === 'D' || person.schedule[idx] === 'd') ? acc + 1 : acc, 0))
 );
 const nighttimeCover = computed(() =>
-  days.map((_, idx) => people.reduce((acc, person) => person.schedule[idx] === 'N' ? acc + 1 : acc, 0))
+  days.value.map((_: number, idx: number) => people.value.reduce((acc, person) => person.schedule[idx] === 'N' ? acc + 1 : acc, 0))
 );
 
 function onCellInput(personIdx: number, dayIdx: number, e: Event) {
   const target = e.target as HTMLElement;
   const newVal = target.innerText.trim();
-  // bounds check before updating reactive array
-  const person = people[personIdx];
+  const person = people.value[personIdx];
   if (!person) return;
   if (dayIdx < 0 || dayIdx >= person.schedule.length) return;
   person.schedule[dayIdx] = newVal;
@@ -156,11 +217,6 @@ function cellClass(cell: string) {
   return "";
 }
 
-interface Person {
-  name: string;
-  schedule: string[];
-}
-
 function getCalculated(person: Person) {
   let totalHours = 0;
   let leave = 0;
@@ -173,7 +229,6 @@ function getCalculated(person: Person) {
     if (cell === "N" || cell === "D" || cell === "spl4") totalHours += 12;
     else if (cell === "d") totalHours += 8;
     else if (cell === "I") leave++;
-    // aggiungi altre logiche se servono
   });
   const normalizedShifts = Math.round(totalHours / 12);
   overtime = normalizedShifts > 20 ? normalizedShifts - 20 : 0;
